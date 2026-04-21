@@ -92,6 +92,11 @@ class DamageWindowLogic:
             widgets["nat"].set("1.0")
             widgets["res"].config(text="0")
 
+        ui_map["energy_label"].config(text="当前能量：10")
+        ui_map["trait_name_label"].config(text="特性：-")
+        ui_map["trait_desc_label"].config(text="效果：-")
+        ui_map["status_label"].config(text="状态")
+
     def on_pet_name_change(self, event, ui_map):
         if event.keysym == "Return":
             return self.confirm_pet_input(ui_map)
@@ -131,6 +136,7 @@ class DamageWindowLogic:
         for stat_name in ["生命", "物攻", "魔攻", "物防", "魔防", "速度"]:
             if stat_name in ui_map["stats"]:
                 ui_map["stats"][stat_name]["base"].config(text=str(base_stats.get(stat_name, 0)))
+        self.load_pet_info(ui_map, pet_data)
         self.refresh_stat_values(ui_map)
 
     def populate_skill_options(self, ui_map, pet_data):
@@ -284,6 +290,15 @@ class DamageWindowLogic:
             if focused in (ui_map["skill_entry"], ui_map["skill_result_listbox"]):
                 return
             self.hide_skill_popup(ui_map)
+
+    def load_pet_info(self, ui_map, pet_data):
+        trait_data = pet_data.get("特性", {})
+        trait_name = trait_data.get("名称", "-")
+        trait_desc = trait_data.get("效果描述", "-")
+        ui_map["energy_label"].config(text="当前能量：10")
+        ui_map["trait_name_label"].config(text=f"特性：{trait_name}")
+        ui_map["trait_desc_label"].config(text=f"效果：{trait_desc}")
+        ui_map["status_label"].config(text="状态")
 
     def refresh_stat_values(self, ui_map):
         for stat_name, widgets in ui_map["stats"].items():

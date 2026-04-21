@@ -192,6 +192,22 @@ class DamageWindow(tk.Toplevel):
             }
             row += 1
 
+        info_frame = ttk.LabelFrame(stats_frame, text="战斗信息")
+        info_frame.grid(row=1, column=5, rowspan=6, padx=(14, 4), pady=4, sticky="nsew")
+        stats_frame.columnconfigure(5, weight=1)
+
+        energy_label = ttk.Label(info_frame, text="当前能量：10", anchor="w")
+        energy_label.pack(fill="x", padx=8, pady=(8, 4))
+
+        trait_name_label = ttk.Label(info_frame, text="特性：-", anchor="w")
+        trait_name_label.pack(fill="x", padx=8, pady=(2, 2))
+
+        trait_desc_label = ttk.Label(info_frame, text="效果：-", anchor="w", justify="left", wraplength=260)
+        trait_desc_label.pack(fill="x", padx=8, pady=(2, 4))
+
+        status_label = ttk.Label(info_frame, text="状态", anchor="w")
+        status_label.pack(fill="x", padx=8, pady=(2, 8))
+
         return {
             "frame": frame,
             "name_entry": name_entry,
@@ -211,4 +227,8 @@ class DamageWindow(tk.Toplevel):
             "hits_entry": hits_entry,
             "other_entry": other_entry,
             "stats": stats_ui,
+            "energy_label": energy_label,
+            "trait_name_label": trait_name_label,
+            "trait_desc_label": trait_desc_label,
+            "status_label": status_label,
         }

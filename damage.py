@@ -13,7 +13,7 @@ def test_damage_window():
 
     if not db:
         from tkinter import messagebox
-        messagebox.showerror("错误", "未找到精灵数据库，请先运行爬虫同步数据！")
+        messagebox.showerror("错误", "未找到精灵数据库，请先运行crawler同步数据！")
         root.destroy()
         return
 

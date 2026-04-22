@@ -14,7 +14,7 @@ class DamageWindow(tk.Toplevel):
         """
         super().__init__(parent)
         self.title("实战伤害推演计算器")
-        self.geometry("1180x720")
+        self.geometry("960x830")
 
         self.atk_type_values = ["物攻", "魔攻", "状态"]
         self.attr_values = ["无", "普通", "火", "水", "草", "光", "地", "冰", "龙", "电", "毒", "虫", "武", "翼", "萌", "幽", "恶", "机械", "幻"]
@@ -24,6 +24,8 @@ class DamageWindow(tk.Toplevel):
 
         self.setup_styles()
         self.setup_ui()
+        self.update_idletasks()
+        self.freeze_default_layout()
         self.logic = DamageWindowLogic(self, db_data)
 
     def setup_styles(self):
@@ -42,60 +44,72 @@ class DamageWindow(tk.Toplevel):
 
     def setup_ui(self):
         """搭建界面骨架：精灵区域 -> 加载 -> 参数 -> 属性 -> 伤害计算。"""
-        main_frame = ttk.Frame(self)
-        main_frame.pack(fill="both", expand=True, padx=10, pady=10)
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(0, weight=1)
 
-        pet_area = ttk.LabelFrame(main_frame, text="精灵区域")
-        pet_area.pack(fill="x", pady=(0, 6))
-        pet_area.columnconfigure(0, weight=1)
-        pet_area.columnconfigure(1, weight=1)
+        self.main_frame = ttk.Frame(self)
+        self.main_frame.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
+        self.main_frame.columnconfigure(0, weight=1)
+        self.main_frame.rowconfigure(0, weight=0)
+        self.main_frame.rowconfigure(1, weight=0)
+        self.main_frame.rowconfigure(2, weight=0)
+        self.main_frame.rowconfigure(3, weight=1)
+        self.main_frame.rowconfigure(4, weight=0)
+
+        self.pet_area = ttk.LabelFrame(self.main_frame, text="精灵区域")
+        self.pet_area.grid(row=0, column=0, sticky="ew", pady=(0, 6))
+        self.pet_area.columnconfigure(0, weight=1)
+        self.pet_area.columnconfigure(1, weight=1)
 
         self.left_ui = self.create_identity_panel(
-            pet_area,
+            self.pet_area,
             column=0,
             title="本人",
-            name_label_text="本人精灵名:",
-            skill_label_text="本人技能名:",
+            name_label_text="精灵名称:",
+            skill_label_text="技能名称:",
         )
         self.right_ui = self.create_identity_panel(
-            pet_area,
+            self.pet_area,
             column=1,
             title="对方",
-            name_label_text="对方精灵名:",
-            skill_label_text="对方技能名:",
+            name_label_text="精灵名称:",
+            skill_label_text="技能名称:",
         )
 
-        load_frame = ttk.Frame(main_frame)
-        load_frame.pack(fill="x", pady=(0, 6))
-        load_frame.columnconfigure(0, weight=1)
-        load_frame.rowconfigure(0, weight=1)
-        load_frame.configure(height=50)
-        load_frame.pack_propagate(False)
-        self.load_all_button = ttk.Button(load_frame, text="加载", width=10)
-        self.load_all_button.grid(row=0, column=0)
+        self.load_frame = ttk.Frame(self.main_frame)
+        self.load_frame.grid(row=1, column=0, sticky="ew", pady=(0, 6))
+        self.load_frame.columnconfigure(0, weight=1)
+        self.load_frame.columnconfigure(1, weight=0)
+        self.load_frame.columnconfigure(2, weight=1)
+        self.load_frame.rowconfigure(0, weight=1)
+        self.create_action_panel(self.load_frame, self.left_ui, 0, "本人操作")
+        self.load_all_button = ttk.Button(self.load_frame, text="加载", width=10)
+        self.load_all_button.grid(row=0, column=1, padx=12)
+        self.create_action_panel(self.load_frame, self.right_ui, 2, "对方操作")
 
-        skill_area = ttk.LabelFrame(main_frame, text="技能与环境参数")
-        skill_area.pack(fill="x", pady=(0, 6))
-        skill_area.columnconfigure(0, weight=1)
-        skill_area.columnconfigure(1, weight=1)
-        self.create_skill_panel(skill_area, self.left_ui, 0, "本人")
-        self.create_skill_panel(skill_area, self.right_ui, 1, "对方")
+        self.skill_area = ttk.LabelFrame(self.main_frame, text="技能与环境参数")
+        self.skill_area.grid(row=2, column=0, sticky="ew", pady=(0, 6))
+        self.skill_area.columnconfigure(0, weight=1)
+        self.skill_area.columnconfigure(1, weight=1)
+        self.create_skill_panel(self.skill_area, self.left_ui, 0, "本人")
+        self.create_skill_panel(self.skill_area, self.right_ui, 1, "对方")
 
-        stats_area = ttk.LabelFrame(main_frame, text="实战属性")
-        stats_area.pack(fill="both", expand=True, pady=(0, 6))
-        stats_area.columnconfigure(0, weight=1)
-        stats_area.columnconfigure(1, weight=1)
-        self.create_stats_panel(stats_area, self.left_ui, 0, "本人")
-        self.create_stats_panel(stats_area, self.right_ui, 1, "对方")
+        self.stats_area = ttk.LabelFrame(self.main_frame, text="实战属性")
+        self.stats_area.grid(row=3, column=0, sticky="nsew", pady=(0, 6))
+        self.stats_area.columnconfigure(0, weight=1)
+        self.stats_area.columnconfigure(1, weight=1)
+        self.stats_area.rowconfigure(0, weight=1)
+        self.create_stats_panel(self.stats_area, self.left_ui, 0, "本人")
+        self.create_stats_panel(self.stats_area, self.right_ui, 1, "对方")
 
-        result_frame = ttk.LabelFrame(main_frame, text="伤害计算")
-        result_frame.pack(fill="x")
-        result_frame.columnconfigure(0, weight=1)
-        result_frame.columnconfigure(1, weight=1)
-        result_frame.columnconfigure(2, weight=1)
-        result_frame.rowconfigure(0, weight=1)
+        self.result_frame = ttk.LabelFrame(self.main_frame, text="伤害计算")
+        self.result_frame.grid(row=4, column=0, sticky="ew")
+        self.result_frame.columnconfigure(0, weight=1)
+        self.result_frame.columnconfigure(1, weight=1)
+        self.result_frame.columnconfigure(2, weight=1)
+        self.result_frame.rowconfigure(0, weight=1)
 
-        left_group = ttk.Frame(result_frame)
+        left_group = ttk.Frame(self.result_frame)
         left_group.grid(row=0, column=0, sticky="w", padx=10, pady=10)
         self.left_to_right_button = ttk.Button(left_group, text="本人开始")
         self.left_to_right_button.pack(side="left", padx=(0, 10))
@@ -108,10 +122,10 @@ class DamageWindow(tk.Toplevel):
         )
         self.left_to_right_result.pack(side="left")
 
-        self.reset_button = ttk.Button(result_frame, text="重置")
+        self.reset_button = ttk.Button(self.result_frame, text="重置")
         self.reset_button.grid(row=0, column=1)
 
-        right_group = ttk.Frame(result_frame)
+        right_group = ttk.Frame(self.result_frame)
         right_group.grid(row=0, column=2, sticky="e", padx=10, pady=10)
         self.right_to_left_result = ttk.Label(
             right_group,
@@ -123,8 +137,38 @@ class DamageWindow(tk.Toplevel):
         self.right_to_left_button = ttk.Button(right_group, text="对方开始")
         self.right_to_left_button.pack(side="left")
 
+    def freeze_default_layout(self):
+        """记录默认展示尺寸，缩小时不再压缩各区域。"""
+        self._freeze_grid_minsizes(self.main_frame, columns=[0], rows=[0, 1, 2, 3, 4])
+        self._freeze_grid_minsizes(self.pet_area, columns=[0, 1], rows=[0])
+        self._freeze_grid_minsizes(self.load_frame, columns=[0, 1, 2], rows=[0])
+        self._freeze_grid_minsizes(self.skill_area, columns=[0, 1], rows=[0])
+        self._freeze_grid_minsizes(self.stats_area, columns=[0, 1], rows=[0])
+        self._freeze_grid_minsizes(self.result_frame, columns=[0, 1, 2], rows=[0])
+
+        for panel in (self.left_ui, self.right_ui):
+            self._freeze_grid_minsizes(panel["top_frame"], columns=[0, 1], rows=[0])
+            self._freeze_grid_minsizes(panel["name_frame"], columns=[0], rows=[0, 1])
+            self._freeze_grid_minsizes(panel["skill_input_frame"], columns=[0, 1], rows=[0, 1, 2])
+            self._freeze_grid_minsizes(panel["action_frame"], columns=[0, 1, 2, 3], rows=[0, 1])
+            self._freeze_grid_minsizes(panel["skill_param_frame"], columns=[0, 1, 2, 3, 4, 5], rows=[0, 1, 2])
+            self._freeze_grid_minsizes(panel["stats_frame"], columns=[0, 1, 2, 3, 4, 5], rows=[0, 1, 2, 3, 4, 5, 6])
+
+    def _freeze_grid_minsizes(self, widget, columns=None, rows=None):
+        """将当前网格尺寸记录为最小尺寸。"""
+        columns = columns or []
+        rows = rows or []
+        for column in columns:
+            _, _, width, _ = widget.grid_bbox(column, 0)
+            if width > 0:
+                widget.grid_columnconfigure(column, minsize=width)
+        for row in rows:
+            _, _, _, height = widget.grid_bbox(0, row)
+            if height > 0:
+                widget.grid_rowconfigure(row, minsize=height)
+
     def create_identity_panel(self, parent, column, title, name_label_text, skill_label_text):
-        """创建精灵输入区域（精灵名/技能名 + 两个候选列表框）。
+        """创建精灵输入区域（精灵名/四个技能名 + 两个候选列表框）。
 
         参数来源说明（文件+代码位置）：
         - parent / column / title / name_label_text / skill_label_text：
@@ -134,20 +178,34 @@ class DamageWindow(tk.Toplevel):
         """
         panel_frame = ttk.LabelFrame(parent, text=title)
         panel_frame.grid(row=0, column=column, sticky="nsew", padx=6, pady=6)
+        parent.rowconfigure(0, weight=1)
 
         top_frame = ttk.Frame(panel_frame)
         top_frame.pack(fill="x", padx=8, pady=(8, 4))
-
-        ttk.Label(top_frame, text=name_label_text).grid(row=0, column=0, padx=4, pady=4, sticky="w")
-        name_entry = ttk.Entry(top_frame, width=14, style="Damage.TEntry")
-        name_entry.grid(row=0, column=1, padx=4, pady=4, sticky="ew")
-
-        ttk.Label(top_frame, text=skill_label_text).grid(row=0, column=2, padx=4, pady=4, sticky="w")
-        skill_entry = ttk.Entry(top_frame, width=18, style="Damage.TEntry")
-        skill_entry.grid(row=0, column=3, padx=4, pady=4, sticky="ew")
-
+        top_frame.columnconfigure(0, weight=1)
         top_frame.columnconfigure(1, weight=1)
-        top_frame.columnconfigure(3, weight=1)
+
+        name_frame = ttk.Frame(top_frame)
+        name_frame.grid(row=0, column=0, padx=(0, 8), pady=0, sticky="nsew")
+        name_frame.columnconfigure(0, weight=1)
+
+        ttk.Label(name_frame, text=name_label_text).grid(row=0, column=0, padx=4, pady=4, sticky="w")
+        name_entry = ttk.Entry(name_frame, width=10, style="Damage.TEntry")
+        name_entry.grid(row=1, column=0, padx=4, pady=4, sticky="ew")
+
+        skill_frame = ttk.Frame(top_frame)
+        skill_frame.grid(row=0, column=1, padx=(8, 0), pady=0, sticky="nsew")
+        ttk.Label(skill_frame, text="技能输入区").grid(row=0, column=0, columnspan=2, padx=4, pady=(0, 4), sticky="w")
+        skill_entries = []
+        for skill_index in range(4):
+            row_index = (skill_index // 2) + 1
+            column_index = skill_index % 2
+            skill_entry = ttk.Entry(skill_frame, width=10, style="Damage.TEntry")
+            skill_entry.grid(row=row_index, column=column_index, padx=4, pady=(0, 4), sticky="ew")
+            skill_entries.append(skill_entry)
+
+        skill_frame.columnconfigure(0, weight=1)
+        skill_frame.columnconfigure(1, weight=1)
 
         pet_result_frame = ttk.Frame(panel_frame)
         pet_result_scrollbar = ttk.Scrollbar(pet_result_frame, orient="vertical")
@@ -178,13 +236,52 @@ class DamageWindow(tk.Toplevel):
         return {
             "frame": panel_frame,
             "name_entry": name_entry,
-            "skill_entry": skill_entry,
+            "skill_entries": skill_entries,
             "top_frame": top_frame,
+            "name_frame": name_frame,
+            "skill_input_frame": skill_frame,
             "pet_result_frame": pet_result_frame,
             "pet_result_listbox": pet_result_listbox,
             "skill_result_frame": skill_result_frame,
             "skill_result_listbox": skill_result_listbox,
         }
+
+    def create_action_panel(self, parent, ui_map, column, title):
+        """创建单侧的技能与操作按钮区域。"""
+        action_frame = ttk.LabelFrame(parent, text=title)
+        action_frame.grid(row=0, column=column, sticky="nsew", padx=6, pady=6)
+
+        skill_buttons = []
+        for skill_index in range(4):
+            button = ttk.Button(action_frame, text=f"技能{skill_index + 1}", width=10)
+            button.grid(row=skill_index // 4, column=skill_index % 4, padx=4, pady=4, sticky="ew")
+            skill_buttons.append(button)
+
+        wish_button = ttk.Button(action_frame, text="愿力强化", width=10)
+        wish_button.grid(row=1, column=0, padx=4, pady=4, sticky="ew")
+
+        boss_button = ttk.Button(action_frame, text="首领化", width=10)
+        boss_button.grid(row=1, column=1, padx=4, pady=4, sticky="ew")
+
+        energy_button = ttk.Button(action_frame, text="聚能", width=10)
+        energy_button.grid(row=1, column=2, padx=4, pady=4, sticky="ew")
+
+        retreat_button = ttk.Button(action_frame, text="退场", width=10)
+        retreat_button.grid(row=1, column=3, padx=4, pady=4, sticky="ew")
+
+        for button_column in range(4):
+            action_frame.columnconfigure(button_column, weight=1)
+
+        ui_map.update(
+            {
+                "action_frame": action_frame,
+                "skill_buttons": skill_buttons,
+                "wish_button": wish_button,
+                "boss_button": boss_button,
+                "energy_button": energy_button,
+                "retreat_button": retreat_button,
+            }
+        )
 
     def create_skill_panel(self, parent, ui_map, column, title):
         """创建技能与环境参数区域，并把控件引用写回 ui_map。
@@ -197,6 +294,8 @@ class DamageWindow(tk.Toplevel):
         """
         skill_frame = ttk.LabelFrame(parent, text=title)
         skill_frame.grid(row=0, column=column, sticky="ew", padx=6, pady=6)
+        for column_index in range(6):
+            skill_frame.columnconfigure(column_index, weight=1 if column_index % 2 == 1 else 0)
 
         ttk.Label(skill_frame, text="技能类型").grid(row=0, column=0, padx=4, pady=4)
         atk_type = ttk.Combobox(skill_frame, values=self.atk_type_values, width=8, state="readonly", style="Damage.TCombobox")
@@ -245,6 +344,7 @@ class DamageWindow(tk.Toplevel):
 
         ui_map.update(
             {
+                "skill_param_frame": skill_frame,
                 "atk_type": atk_type,
                 "atk_attr": atk_attr,
                 "power_entry": power_entry,
@@ -268,6 +368,7 @@ class DamageWindow(tk.Toplevel):
         """
         stats_frame = ttk.LabelFrame(parent, text=title)
         stats_frame.grid(row=0, column=column, sticky="nsew", padx=6, pady=6)
+        parent.rowconfigure(0, weight=1)
 
         headers = ["属性", "种族", "个体", "性格", "面板值"]
         for col, header in enumerate(headers):
@@ -303,6 +404,8 @@ class DamageWindow(tk.Toplevel):
         info_frame = ttk.LabelFrame(stats_frame, text="战斗信息")
         info_frame.grid(row=1, column=5, rowspan=6, padx=(14, 4), pady=4, sticky="nsew")
         stats_frame.columnconfigure(5, weight=1)
+        for row_index in range(1, 7):
+            stats_frame.rowconfigure(row_index, weight=1)
 
         energy_label = ttk.Label(info_frame, text="当前能量：10", anchor="w")
         energy_label.pack(fill="x", padx=8, pady=(8, 4))
@@ -318,6 +421,7 @@ class DamageWindow(tk.Toplevel):
 
         ui_map.update(
             {
+                "stats_frame": stats_frame,
                 "stats": stats_ui,
                 "energy_label": energy_label,
                 "trait_name_label": trait_name_label,

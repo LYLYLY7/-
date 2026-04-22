@@ -1,3 +1,5 @@
+import json
+from pathlib import Path
 from tkinter import messagebox
 
 from utils.calculator import calc_stat, calculate_element_multiplier, calculate_final_damage, calculate_stab
@@ -5,31 +7,29 @@ from utils.trait_best_partner import BestPartnerTraitService
 
 
 class DamageWindowLogic:
-    OPTIONAL_SKILL_PLACEHOLDER = "可选"
+    CACHE_FILE = Path(__file__).resolve().parents[1] / "data" / "battle_pet_cache.json"
+    PANEL_KEYS = {"本人": "本人", "对方": "对方"}
+    SKILL_FIELDS = ["技能名称", "属性", "消耗", "类型", "威力", "描述"]
+    PET_FIELDS = ["名字", "种族值", "基础属性", "克制表", "特性"]
 
     def __init__(self, view, db_data):
-        """伤害窗口逻辑控制器。
-
-        参数来源说明（文件+代码位置）：
-        - view:
-          - 来源文件：`ui/damage_window.py`
-          - 调用位置：`DamageWindow.__init__()` 中
-            `self.logic = DamageWindowLogic(self, db_data)`。
-        - db_data:
-          - 来源文件：`ui/damage_window.py`
-          - 调用位置：同上，由窗口构造参数继续传入。
-        """
+        """伤害窗口逻辑控制器。"""
         self.view = view
         self.db_data = db_data
         self.attr_values = ["无", "普通", "火", "水", "草", "光", "地", "冰", "龙", "电", "毒", "虫", "武", "翼", "萌", "幽", "恶", "机械", "幻"]
         self.pet_names = sorted(db_data.keys())
+        self.cached_data = {}
 
         self.bind_events()
 
     def init_panel_runtime_state(self, ui_map):
-        """初始化一个面板的运行时状态（由 bind_events 调用）。"""
+        """初始化一个面板的运行时状态。"""
         ui_map["current_energy"] = 10
         ui_map["trait_name"] = ""
+        ui_map["active_skill_index"] = 0
+        ui_map["active_skill_entry"] = ui_map["skill_entries"][0]
+        ui_map["loaded_pet_data"] = {}
+        ui_map["loaded_skills"] = [{}, {}, {}, {}]
         BestPartnerTraitService.init_state(ui_map)
 
     def update_panel_status_label(self, ui_map):
@@ -44,27 +44,72 @@ class DamageWindowLogic:
         self.view.right_to_left_button.config(command=lambda: self.run_calc(self.view.right_ui, self.view.left_ui, self.view.right_to_left_result, "对方打本人伤害"))
 
         for panel in (self.view.left_ui, self.view.right_ui):
+            panel["panel_key"] = self.PANEL_KEYS[panel["frame"].cget("text")]
             self.init_panel_runtime_state(panel)
             panel["atk_attr"].bind("<KeyRelease>", lambda event, combo=panel["atk_attr"]: self.on_attr_type(event, combo))
             panel["name_entry"].bind("<KeyRelease>", lambda event, ui_map=panel: self.on_pet_name_change(event, ui_map))
             panel["name_entry"].bind("<Return>", lambda event, ui_map=panel: self.confirm_pet_input(ui_map))
             panel["name_entry"].bind("<Down>", lambda event, ui_map=panel: self.focus_pet_popup(ui_map))
             panel["name_entry"].bind("<FocusOut>", lambda event, ui_map=panel: self.on_panel_entry_focus_out(ui_map, "pet"))
-            panel["skill_entry"].bind("<KeyRelease>", lambda event, ui_map=panel: self.on_skill_name_change(event, ui_map))
-            panel["skill_entry"].bind("<Return>", lambda event, ui_map=panel: self.confirm_skill_entry(ui_map))
-            panel["skill_entry"].bind("<Down>", lambda event, ui_map=panel: self.focus_skill_popup(ui_map))
-            panel["skill_entry"].bind("<FocusOut>", lambda event, ui_map=panel: self.on_panel_entry_focus_out(ui_map, "skill"))
+
+            for skill_index, skill_entry in enumerate(panel["skill_entries"]):
+                skill_entry.bind("<FocusIn>", lambda event, ui_map=panel, idx=skill_index: self.set_active_skill_entry(ui_map, idx))
+                skill_entry.bind("<KeyRelease>", lambda event, ui_map=panel, idx=skill_index: self.on_skill_name_change(event, ui_map, idx))
+                skill_entry.bind("<Return>", lambda event, ui_map=panel, idx=skill_index: self.confirm_skill_entry(ui_map, idx))
+                skill_entry.bind("<Down>", lambda event, ui_map=panel, idx=skill_index: self.focus_skill_popup(ui_map, idx))
+                skill_entry.bind("<FocusOut>", lambda event, ui_map=panel: self.on_panel_entry_focus_out(ui_map, "skill"))
+
             panel["pet_result_listbox"].bind("<ButtonRelease-1>", lambda event, ui_map=panel: self.confirm_pet_input(ui_map, use_popup_selection=True))
             panel["pet_result_listbox"].bind("<Return>", lambda event, ui_map=panel: self.confirm_pet_input(ui_map, use_popup_selection=True))
             panel["pet_result_listbox"].bind("<Double-Button-1>", lambda event, ui_map=panel: self.confirm_pet_input(ui_map, use_popup_selection=True))
             panel["skill_result_listbox"].bind("<ButtonRelease-1>", lambda event, ui_map=panel: self.confirm_skill_entry(ui_map, use_popup_selection=True))
             panel["skill_result_listbox"].bind("<Return>", lambda event, ui_map=panel: self.confirm_skill_entry(ui_map, use_popup_selection=True))
             panel["skill_result_listbox"].bind("<Double-Button-1>", lambda event, ui_map=panel: self.confirm_skill_entry(ui_map, use_popup_selection=True))
+
+            for skill_index, button in enumerate(panel["skill_buttons"]):
+                button.config(command=lambda ui_map=panel, idx=skill_index: self.load_skill_from_slot(ui_map, idx))
+
+            panel["wish_button"].config(command=self.do_nothing)
+            panel["boss_button"].config(command=self.do_nothing)
+            panel["retreat_button"].config(command=self.do_nothing)
+            panel["energy_button"].config(command=lambda ui_map=panel: self.charge_energy(ui_map))
+
             for widgets in panel["stats"].values():
                 widgets["iv"].bind("<<ComboboxSelected>>", lambda event, ui_map=panel: self.refresh_stat_values(ui_map))
                 widgets["nat"].bind("<<ComboboxSelected>>", lambda event, ui_map=panel: self.refresh_stat_values(ui_map))
 
-        self.setup_optional_skill_placeholder(self.view.right_ui)
+            self.reset_skill_button_texts(panel)
+
+    def do_nothing(self):
+        """占位按钮，无功能。"""
+        return
+
+    def set_active_skill_entry(self, ui_map, skill_index):
+        """记录当前正在编辑的技能输入框。"""
+        ui_map["active_skill_index"] = skill_index
+        ui_map["active_skill_entry"] = ui_map["skill_entries"][skill_index]
+
+    def get_skill_entry(self, ui_map, skill_index=None):
+        """获取指定槽位的技能输入框。"""
+        if skill_index is None:
+            skill_index = ui_map.get("active_skill_index", 0)
+        return ui_map["skill_entries"][skill_index]
+
+    def get_skill_input(self, ui_map, skill_index):
+        """读取指定槽位的技能输入。"""
+        return self.get_skill_entry(ui_map, skill_index).get().strip()
+
+    def reset_skill_button_texts(self, ui_map):
+        """把技能按钮重置为默认文案。"""
+        for skill_index, button in enumerate(ui_map["skill_buttons"]):
+            button.config(text=f"技能{skill_index + 1}")
+
+    def update_skill_button_texts_from_loaded(self, ui_map):
+        """加载成功后，按缓存技能更新按钮文案。"""
+        for skill_index, button in enumerate(ui_map["skill_buttons"]):
+            skill_data = ui_map.get("loaded_skills", [{}, {}, {}, {}])[skill_index]
+            skill_name = skill_data.get("技能名称", "")
+            button.config(text=skill_name if skill_name else f"技能{skill_index + 1}")
 
     def show_warning(self, message):
         """统一错误提示入口，确保提示框在主窗口前方居中显示。"""
@@ -79,114 +124,96 @@ class DamageWindowLogic:
 
     def reset_all(self):
         """将整个页面恢复到初始打开状态。"""
+        self.cached_data = {}
         for panel in (self.view.left_ui, self.view.right_ui):
             panel["name_entry"].delete(0, "end")
-            self.reset_panel_inputs(panel)
+            self.reset_panel_inputs(panel, clear_skill_entries=True)
             self.hide_pet_popup(panel)
             self.hide_skill_popup(panel)
-
-        self.view.left_ui["skill_entry"].delete(0, "end")
-        self.view.right_ui["skill_entry"].delete(0, "end")
-        self.view.right_ui["skill_entry"].insert(0, self.OPTIONAL_SKILL_PLACEHOLDER)
+            self.reset_skill_button_texts(panel)
 
         self.view.left_to_right_result.config(text="造成伤害: 0")
         self.view.right_to_left_result.config(text="造成伤害: 0")
 
-    def setup_optional_skill_placeholder(self, ui_map):
-        """为“对方技能名”输入框安装可选占位文本逻辑。
-
-        参数来源说明（文件+代码位置）：
-        - ui_map:
-          - 来源文件：`utils/damage_window_logic.py`
-          - 调用位置：`bind_events()` 中 `self.setup_optional_skill_placeholder(self.view.right_ui)`。
-        """
-        entry = ui_map["skill_entry"]
-        if not entry.get().strip():
-            entry.insert(0, self.OPTIONAL_SKILL_PLACEHOLDER)
-        entry.bind("<FocusIn>", lambda event, target=entry: self.clear_optional_placeholder(target))
-        entry.bind("<FocusOut>", lambda event, target=entry: self.restore_optional_placeholder(target))
-
-    def clear_optional_placeholder(self, entry_widget):
-        """当输入框获得焦点时，清理“可选”占位文本。
-
-        参数来源说明（文件+代码位置）：
-        - entry_widget:
-          - 来源文件：`utils/damage_window_logic.py`
-          - 调用位置：`setup_optional_skill_placeholder()` 中 `<FocusIn>` 绑定。
-        """
-        if entry_widget.get().strip() == self.OPTIONAL_SKILL_PLACEHOLDER:
-            entry_widget.delete(0, "end")
-
-    def restore_optional_placeholder(self, entry_widget):
-        """当输入框失焦且为空时，恢复“可选”占位文本。
-
-        参数来源说明（文件+代码位置）：
-        - entry_widget:
-          - 来源文件：`utils/damage_window_logic.py`
-          - 调用位置：`setup_optional_skill_placeholder()` 中 `<FocusOut>` 绑定。
-        """
-        if not entry_widget.get().strip():
-            entry_widget.insert(0, self.OPTIONAL_SKILL_PLACEHOLDER)
-
-    def get_skill_input(self, ui_map, allow_placeholder=False):
-        """读取技能输入，并按配置决定是否把“可选”视为空值。
-
-        参数来源说明（文件+代码位置）：
-        - ui_map:
-          - 来源文件：`utils/damage_window_logic.py`
-          - 调用位置：`load_all_data()`、`load_panel_data()`。
-        - allow_placeholder:
-          - 来源文件：`utils/damage_window_logic.py`
-          - 传参位置：当前调用默认 False，用于把“可选”转为空。
-        """
-        value = ui_map["skill_entry"].get().strip()
-        if not allow_placeholder and value == self.OPTIONAL_SKILL_PLACEHOLDER:
-            return ""
-        return value
-
     def load_all_data(self):
-        """统一加载入口：校验输入后加载双方数据。"""
+        """统一加载入口：校验、生成缓存文件，并用缓存刷新界面。"""
         left_name = self.view.left_ui["name_entry"].get().strip()
-        left_skill = self.get_skill_input(self.view.left_ui)
+        left_first_skill = self.get_skill_input(self.view.left_ui, 0)
         right_name = self.view.right_ui["name_entry"].get().strip()
-        right_skill = self.get_skill_input(self.view.right_ui)
 
         if not left_name:
             self.show_warning("请输入本人精灵名称")
             return
-        if not left_skill:
+        if not left_first_skill:
             self.show_warning("请输入本人技能名称")
             return
         if not right_name:
             self.show_warning("请输入对方精灵名称")
             return
 
-        if not self.load_panel_data(self.view.left_ui, require_skill=True):
+        payload = {}
+        for panel in (self.view.left_ui, self.view.right_ui):
+            cached_panel_data = self.build_cached_panel_data(panel, require_first_skill=(panel is self.view.left_ui))
+            if not cached_panel_data:
+                return
+            payload[panel["panel_key"]] = cached_panel_data
+
+        self.write_cache_file(payload)
+        self.cached_data = self.read_cache_file()
+
+        if not self.load_panel_data(self.view.left_ui):
             return
-        if not self.load_panel_data(self.view.right_ui, require_skill=False):
+        if not self.load_panel_data(self.view.right_ui):
             return
 
-        self.view.left_ui["name_entry"].delete(0, "end")
-        self.view.left_ui["name_entry"].insert(0, left_name)
-        self.view.left_ui["skill_entry"].delete(0, "end")
-        self.view.left_ui["skill_entry"].insert(0, left_skill)
+        self.update_skill_button_texts_from_loaded(self.view.left_ui)
+        self.update_skill_button_texts_from_loaded(self.view.right_ui)
 
-        self.view.right_ui["name_entry"].delete(0, "end")
-        self.view.right_ui["name_entry"].insert(0, right_name)
-        self.view.right_ui["skill_entry"].delete(0, "end")
-        if right_skill:
-            self.view.right_ui["skill_entry"].insert(0, right_skill)
-        else:
-            self.view.right_ui["skill_entry"].insert(0, self.OPTIONAL_SKILL_PLACEHOLDER)
+    def build_cached_panel_data(self, ui_map, require_first_skill):
+        """从原始数据库提取单侧缓存数据。"""
+        pet_name = ui_map["name_entry"].get().strip()
+        skill_names = [entry.get().strip() for entry in ui_map["skill_entries"]]
+
+        pet_data = self.db_data.get(pet_name)
+        if not pet_data:
+            self.show_warning(f"未找到精灵: {pet_name}")
+            return None
+
+        if require_first_skill and not skill_names[0]:
+            self.show_warning("请输入本人技能名称")
+            return None
+
+        cached_panel = {field: pet_data.get(field, {} if field != "名字" else pet_name) for field in self.PET_FIELDS}
+        cached_panel["技能列表"] = []
+
+        for skill_name in skill_names:
+            if not skill_name:
+                cached_panel["技能列表"].append({})
+                continue
+
+            skill_data = self.find_skill_data(pet_data, skill_name)
+            if not skill_data:
+                self.show_warning(f"未找到技能: {skill_name}")
+                return None
+            cached_panel["技能列表"].append({field: skill_data.get(field, "") for field in self.SKILL_FIELDS})
+
+        return cached_panel
+
+    def write_cache_file(self, payload):
+        """把当前加载结果写入缓存文件。"""
+        self.CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with self.CACHE_FILE.open("w", encoding="utf-8") as file:
+            json.dump(payload, file, ensure_ascii=False, indent=4)
+
+    def read_cache_file(self):
+        """读取缓存文件内容。"""
+        if not self.CACHE_FILE.exists():
+            return {}
+        with self.CACHE_FILE.open("r", encoding="utf-8") as file:
+            return json.load(file)
 
     def on_attr_type(self, event, combo):
-        """技能属性输入时提供下拉筛选。
-
-        参数来源说明（文件+代码位置）：
-        - event / combo:
-          - 来源文件：`utils/damage_window_logic.py`
-          - 调用位置：`bind_events()` 中 `panel["atk_attr"].bind("<KeyRelease>", ...)`。
-        """
+        """技能属性输入时提供下拉筛选。"""
         value = combo.get()
         if value == "":
             combo["values"] = self.attr_values
@@ -194,61 +221,41 @@ class DamageWindowLogic:
             combo["values"] = [item for item in self.attr_values if value in item]
         combo.event_generate("<Down>")
 
-    def load_panel_data(self, ui_map, require_skill=True):
-        """加载单侧精灵与技能数据到面板。
-
-        参数来源说明：
-        - ui_map:
-          - 调用来源文件：`utils/damage_window_logic.py`
-          - 调用位置：`load_all_data()` 中 `self.load_panel_data(self.view.left_ui, ...)`
-            与 `self.load_panel_data(self.view.right_ui, ...)` 这两处调用代码段。
-          - 数据最初来源：`ui/damage_window.py` 中 `setup_ui()` 创建
-            `self.left_ui / self.right_ui`，并由 `create_identity_panel()`、
-            `create_skill_panel()`、`create_stats_panel()` 逐步填充控件引用。
-        - require_skill:
-          - 调用来源文件：`utils/damage_window_logic.py`
-          - 调用位置：`load_all_data()` 中左侧传 `True`（本人技能必填）、
-            右侧传 `False`（对方技能可选）。
-        """
-        pet_name = ui_map["name_entry"].get().strip()
-        skill_name = self.get_skill_input(ui_map)
-
-        if pet_name not in self.db_data:
-            self.show_warning(f"未找到精灵: {pet_name}")
+    def load_panel_data(self, ui_map):
+        """从缓存中加载单侧精灵与技能数据到面板。"""
+        cached_panel_data = self.cached_data.get(ui_map["panel_key"], {})
+        pet_name = cached_panel_data.get("名字", "")
+        if not pet_name:
             return False
 
         self.hide_pet_popup(ui_map)
         self.hide_skill_popup(ui_map)
-        self.reset_panel_inputs(ui_map)
-        ui_map["name_entry"].delete(0, "end")
-        ui_map["name_entry"].insert(0, pet_name)
-        ui_map["skill_entry"].delete(0, "end")
-        if skill_name:
-            ui_map["skill_entry"].insert(0, skill_name)
-        elif ui_map is self.view.right_ui:
-            ui_map["skill_entry"].insert(0, self.OPTIONAL_SKILL_PLACEHOLDER)
+        self.reset_panel_inputs(ui_map, clear_skill_entries=False)
 
-        pet_data = self.db_data[pet_name]
-        self.load_pet_stats(ui_map, pet_data)
-        self.populate_skill_options(ui_map, pet_data)
+        ui_map["loaded_pet_data"] = cached_panel_data
+        ui_map["loaded_skills"] = list(cached_panel_data.get("技能列表", []))
+        while len(ui_map["loaded_skills"]) < 4:
+            ui_map["loaded_skills"].append({})
 
-        if skill_name:
-            skill_data = self.find_skill_data(pet_data, skill_name)
-            if skill_data:
-                self.fill_skill_fields(ui_map, skill_data)
-                self.update_element_multiplier_for_loaded_skill(ui_map)
-            else:
-                self.show_warning(f"未找到技能: {skill_name}")
-                return False
-        elif require_skill:
-            self.show_warning("该面板技能为必填项")
-            return False
+        self.load_pet_stats(ui_map, cached_panel_data)
+        self.populate_skill_options(ui_map, self.db_data.get(pet_name, {}))
+
+        if ui_map["loaded_skills"][0].get("技能名称"):
+            self.load_skill_from_slot(ui_map, 0, silent=True)
+
         return True
 
-    def reset_panel_inputs(self, ui_map):
-        """恢复当前面板默认值（不包含外部布局本身）。"""
-        ui_map["skill_entry"].delete(0, "end")
+    def reset_panel_inputs(self, ui_map, clear_skill_entries):
+        """恢复当前面板默认值。"""
+        if clear_skill_entries:
+            for skill_entry in ui_map["skill_entries"]:
+                skill_entry.delete(0, "end")
+
         ui_map["skill_candidates"] = []
+        ui_map["active_skill_index"] = 0
+        ui_map["active_skill_entry"] = ui_map["skill_entries"][0]
+        ui_map["loaded_pet_data"] = {}
+        ui_map["loaded_skills"] = [{}, {}, {}, {}]
         ui_map["atk_type"].set("物攻")
         ui_map["atk_attr"].set("无")
 
@@ -277,13 +284,7 @@ class DamageWindowLogic:
         self.update_panel_status_label(ui_map)
 
     def on_pet_name_change(self, event, ui_map):
-        """处理精灵名输入变化，驱动精灵候选与技能候选更新。
-
-        参数来源说明（文件+代码位置）：
-        - event / ui_map:
-          - 来源文件：`utils/damage_window_logic.py`
-          - 调用位置：`bind_events()` 中 `panel["name_entry"].bind("<KeyRelease>", ...)`。
-        """
+        """处理精灵名输入变化，驱动精灵候选与技能候选更新。"""
         if event.keysym == "Return":
             return self.confirm_pet_input(ui_map)
         if event.keysym == "Escape":
@@ -304,13 +305,7 @@ class DamageWindowLogic:
         self.show_pet_popup(ui_map)
 
     def confirm_pet_input(self, ui_map, use_popup_selection=False):
-        """确认精灵输入（可来自手动回车或候选列表点击）。
-
-        参数来源说明（文件+代码位置）：
-        - ui_map / use_popup_selection:
-          - 来源文件：`utils/damage_window_logic.py`
-          - 调用位置：`bind_events()` 的 `<Return>` 与候选列表点击/双击回调。
-        """
+        """确认精灵输入。"""
         if use_popup_selection and ui_map["pet_result_listbox"].curselection():
             selected = ui_map["pet_result_listbox"].get(ui_map["pet_result_listbox"].curselection()[0])
             ui_map["name_entry"].delete(0, "end")
@@ -319,24 +314,14 @@ class DamageWindowLogic:
         ui_map["name_entry"].focus_set()
         ui_map["name_entry"].icursor("end")
         self.hide_pet_popup(ui_map)
+
         pet_name = ui_map["name_entry"].get().strip()
         if pet_name in self.db_data:
             self.populate_skill_options(ui_map, self.db_data[pet_name])
         return "break"
 
     def load_pet_stats(self, ui_map, pet_data):
-        """把精灵基础属性加载到面板，并刷新实战属性。
-
-        参数来源说明：
-        - ui_map:
-          - 来源文件：`utils/damage_window_logic.py`
-          - 传入位置：`load_panel_data()` 中 `self.load_pet_stats(ui_map, pet_data)`。
-        - pet_data:
-          - 来源文件：`utils/damage_window_logic.py`
-          - 生成位置：`load_panel_data()` 中 `pet_data = self.db_data[pet_name]`。
-          - 上游数据来源：`db_data` 由 `ui/damage_window.py` 中
-            `DamageWindow(..., db_data)` 传入当前逻辑类构造函数。
-        """
+        """把精灵基础属性加载到面板，并刷新实战属性。"""
         base_stats = pet_data.get("基础属性", {})
         for stat_name in ["生命", "物攻", "魔攻", "物防", "魔防", "速度"]:
             if stat_name in ui_map["stats"]:
@@ -345,28 +330,15 @@ class DamageWindowLogic:
         self.refresh_stat_values(ui_map)
 
     def populate_skill_options(self, ui_map, pet_data):
-        """根据精灵数据构建技能候选列表。
-
-        参数来源说明（文件+代码位置）：
-        - ui_map / pet_data:
-          - 来源文件：`utils/damage_window_logic.py`
-          - 调用位置：`load_panel_data()`、`on_pet_name_change()`、`confirm_pet_input()`。
-        """
+        """根据原始精灵数据构建技能候选列表。"""
         skill_names = []
         for key in ["精灵技能列表", "血脉技能列表", "可学技能石列表"]:
             skill_names.extend([skill.get("技能名称", "") for skill in pet_data.get(key, []) if skill.get("技能名称")])
 
-        unique_names = sorted(set(skill_names))
-        ui_map["skill_candidates"] = unique_names
+        ui_map["skill_candidates"] = sorted(set(skill_names))
 
     def find_skill_data(self, pet_data, skill_name):
-        """在精灵技能集合中查找指定技能详情。
-
-        参数来源说明（文件+代码位置）：
-        - pet_data / skill_name:
-          - 来源文件：`utils/damage_window_logic.py`
-          - 调用位置：`load_panel_data()` 中 `self.find_skill_data(pet_data, skill_name)`。
-        """
+        """在精灵技能集合中查找指定技能详情。"""
         for key in ["精灵技能列表", "血脉技能列表", "可学技能石列表"]:
             for skill in pet_data.get(key, []):
                 if skill.get("技能名称") == skill_name:
@@ -374,21 +346,12 @@ class DamageWindowLogic:
         return None
 
     def fill_skill_fields(self, ui_map, skill_data):
-        """把技能详情写入“技能与环境参数”区域。
-
-        参数来源说明：
-        - ui_map:
-          - 来源文件：`utils/damage_window_logic.py`
-          - 传入位置：`load_panel_data()` 中 `self.fill_skill_fields(ui_map, skill_data)`。
-        - skill_data:
-          - 来源文件：`utils/damage_window_logic.py`
-          - 生成位置：`load_panel_data()` 中 `self.find_skill_data(...)` 的返回值。
-        """
+        """把技能详情写入“技能与环境参数”区域。"""
         skill_type = skill_data.get("类型", "物攻")
         skill_attr = skill_data.get("属性", "无") or "无"
         power = skill_data.get("威力", "0")
         cost = skill_data.get("消耗", "0")
-        pet_name = ui_map["name_entry"].get().strip()
+        pet_name = ui_map.get("loaded_pet_data", {}).get("名字", "")
         pet_elements = self.db_data.get(pet_name, {}).get("元素", [])
 
         if skill_type not in self.view.atk_type_values:
@@ -404,11 +367,25 @@ class DamageWindowLogic:
         ui_map["cost_entry"].insert(0, str(cost))
         ui_map["stab_combo"].set(str(calculate_stab(skill_type, skill_attr, pet_elements)))
 
+    def load_skill_from_slot(self, ui_map, skill_index, silent=False):
+        """按缓存技能槽位加载技能详情到参数区。"""
+        self.set_active_skill_entry(ui_map, skill_index)
+
+        loaded_skills = ui_map.get("loaded_skills", [{}, {}, {}, {}])
+        skill_data = loaded_skills[skill_index] if skill_index < len(loaded_skills) else {}
+        if not skill_data or not skill_data.get("技能名称"):
+            if not silent:
+                self.show_warning(f"第{skill_index + 1}个技能尚未填写")
+            return False
+
+        self.fill_skill_fields(ui_map, skill_data)
+        self.update_element_multiplier_for_loaded_skill(ui_map)
+        return True
+
     def update_element_multiplier_for_loaded_skill(self, attacker_ui):
-        """加载技能后，自动按对方克制表刷新属性倍率。"""
+        """加载技能后，自动按缓存中的对方克制表刷新属性倍率。"""
         defender_ui = self.view.right_ui if attacker_ui is self.view.left_ui else self.view.left_ui
-        defender_name = defender_ui["name_entry"].get().strip()
-        defender_kz_table = self.db_data.get(defender_name, {}).get("克制表", {})
+        defender_kz_table = defender_ui.get("loaded_pet_data", {}).get("克制表", {})
         skill_attr = attacker_ui["atk_attr"].get().strip()
         skill_power = attacker_ui["power_entry"].get().strip()
         multiplier = calculate_element_multiplier(skill_attr, skill_power, defender_kz_table)
@@ -454,21 +431,24 @@ class DamageWindowLogic:
 
     def get_filtered_skills(self, ui_map):
         """按当前输入过滤技能候选。"""
-        value = ui_map["skill_entry"].get().strip()
+        active_entry = ui_map.get("active_skill_entry", ui_map["skill_entries"][0])
+        value = active_entry.get().strip()
         candidates = ui_map.get("skill_candidates", [])
         if not value:
             return candidates[:]
         return [name for name in candidates if value in name]
 
-    def on_skill_name_change(self, event, ui_map):
+    def on_skill_name_change(self, event, ui_map, skill_index):
         """处理技能名输入变化，驱动技能候选更新。"""
+        self.set_active_skill_entry(ui_map, skill_index)
+
         if event.keysym == "Return":
-            return self.confirm_skill_entry(ui_map)
+            return self.confirm_skill_entry(ui_map, skill_index)
         if event.keysym == "Escape":
             self.hide_skill_popup(ui_map)
             return "break"
         if event.keysym == "Down":
-            return self.focus_skill_popup(ui_map)
+            return self.focus_skill_popup(ui_map, skill_index)
         if event.keysym in {"Up", "Tab", "Shift_L", "Shift_R", "Control_L", "Control_R"}:
             return
 
@@ -477,22 +457,34 @@ class DamageWindowLogic:
             self.populate_skill_options(ui_map, self.db_data[pet_name])
         self.show_skill_popup(ui_map)
 
-    def confirm_skill_entry(self, ui_map, use_popup_selection=False):
-        """确认技能输入（可来自手动回车或候选列表点击）。"""
-        if use_popup_selection and ui_map["skill_result_listbox"].curselection():
-            selected = ui_map["skill_result_listbox"].get(ui_map["skill_result_listbox"].curselection()[0])
-            ui_map["skill_entry"].delete(0, "end")
-            ui_map["skill_entry"].insert(0, selected)
+    def confirm_skill_entry(self, ui_map, skill_index=None, use_popup_selection=False):
+        """确认技能输入。"""
+        if skill_index is not None:
+            self.set_active_skill_entry(ui_map, skill_index)
 
-        ui_map["skill_entry"].focus_set()
-        ui_map["skill_entry"].icursor("end")
+        target_entry = ui_map.get("active_skill_entry", ui_map["skill_entries"][0])
+        selected = None
+        if ui_map["skill_result_listbox"].size() > 0:
+            current_selection = ui_map["skill_result_listbox"].curselection()
+            if current_selection:
+                selected = ui_map["skill_result_listbox"].get(current_selection[0])
+            elif not use_popup_selection:
+                selected = ui_map["skill_result_listbox"].get(0)
+
+        if selected:
+            target_entry.delete(0, "end")
+            target_entry.insert(0, selected)
+
+        target_entry.focus_set()
+        target_entry.icursor("end")
         self.hide_skill_popup(ui_map)
         return "break"
 
     def show_skill_popup(self, ui_map):
         """展示技能候选弹出列表。"""
         filtered = self.get_filtered_skills(ui_map)
-        if not filtered:
+        active_entry = ui_map.get("active_skill_entry", ui_map["skill_entries"][0])
+        if len(active_entry.get().strip()) < 1 or not filtered:
             self.hide_skill_popup(ui_map)
             return
 
@@ -504,15 +496,18 @@ class DamageWindowLogic:
         ui_map["skill_result_listbox"].activate(0)
         ui_map["skill_result_listbox"].config(height=min(len(filtered), 5))
         if not ui_map["skill_result_frame"].winfo_ismapped():
-            ui_map["skill_result_frame"].pack(fill="x", padx=8, pady=(0, 4), after=ui_map["pet_result_frame"] if ui_map["pet_result_frame"].winfo_ismapped() else ui_map["top_frame"])
+            after_widget = ui_map["pet_result_frame"] if ui_map["pet_result_frame"].winfo_ismapped() else ui_map["top_frame"]
+            ui_map["skill_result_frame"].pack(fill="x", padx=8, pady=(0, 4), after=after_widget)
 
     def hide_skill_popup(self, ui_map):
         """隐藏技能候选弹出列表。"""
         if ui_map["skill_result_frame"].winfo_ismapped():
             ui_map["skill_result_frame"].pack_forget()
 
-    def focus_skill_popup(self, ui_map):
+    def focus_skill_popup(self, ui_map, skill_index=None):
         """将键盘焦点移动到技能候选列表。"""
+        if skill_index is not None:
+            self.set_active_skill_entry(ui_map, skill_index)
         filtered = self.get_filtered_skills(ui_map)
         if not filtered:
             return "break"
@@ -525,7 +520,7 @@ class DamageWindowLogic:
         self.view.after(120, lambda: self.hide_popup_if_needed(ui_map, popup_type))
 
     def hide_popup_if_needed(self, ui_map, popup_type):
-        """根据当前焦点决定是否关闭候选列表（含 Tk popdown 兼容处理）。"""
+        """根据当前焦点决定是否关闭候选列表。"""
         try:
             focus_name = self.view.tk.call("focus")
         except Exception:
@@ -542,10 +537,11 @@ class DamageWindowLogic:
             if focused in (ui_map["name_entry"], ui_map["pet_result_listbox"]):
                 return
             self.hide_pet_popup(ui_map)
-        else:
-            if focused in (ui_map["skill_entry"], ui_map["skill_result_listbox"]):
-                return
-            self.hide_skill_popup(ui_map)
+            return
+
+        if focused == ui_map["skill_result_listbox"] or focused in ui_map["skill_entries"]:
+            return
+        self.hide_skill_popup(ui_map)
 
     def load_pet_info(self, ui_map, pet_data):
         """把精灵特性信息写到“战斗信息”区域。"""
@@ -558,6 +554,11 @@ class DamageWindowLogic:
         ui_map["trait_name_label"].config(text=f"特性：{trait_name}")
         ui_map["trait_desc_label"].config(text=f"效果：{trait_desc}")
         self.update_panel_status_label(ui_map)
+
+    def charge_energy(self, ui_map):
+        """聚能：恢复 5 点能量并同步显示。"""
+        ui_map["current_energy"] = ui_map.get("current_energy", 10) + 5
+        ui_map["energy_label"].config(text=f"当前能量：{ui_map['current_energy']}")
 
     def refresh_stat_values(self, ui_map):
         """按当前个体/性格/特性状态计算并刷新面板值。"""
@@ -576,27 +577,7 @@ class DamageWindowLogic:
             widgets["res"].config(text=str(shown_result))
 
     def run_calc(self, attacker_ui, defender_ui, result_label, label_prefix):
-        """执行一次伤害计算并结算特性/能量变化。
-
-        参数来源：
-        - attacker_ui / defender_ui：
-          - 来源文件：`utils/damage_window_logic.py`
-          - 绑定位置：`bind_events()` 中
-            `self.view.left_to_right_button.config(command=lambda: self.run_calc(...))`
-            与 `self.view.right_to_left_button.config(command=lambda: self.run_calc(...))`。
-          - 实际对象来源：`self.view.left_ui / self.view.right_ui`，
-            这两个对象由 `ui/damage_window.py` 的 `setup_ui()` 创建。
-        - result_label：
-          - 来源文件：`utils/damage_window_logic.py`
-          - 绑定位置：同 `bind_events()` 两个按钮回调，分别传
-            `self.view.left_to_right_result` 与 `self.view.right_to_left_result`。
-          - 控件定义来源：`ui/damage_window.py` 的 `setup_ui()` 伤害计算区域。
-        - label_prefix：
-          - 来源文件：`utils/damage_window_logic.py`
-          - 绑定位置：同 `bind_events()` 两个按钮回调，分别传
-            `"本人打对方伤害"` 与 `"对方打本人伤害"`。
-          - 用途：历史兼容参数，当前主要保留签名稳定性。
-        """
+        """执行一次伤害计算并结算特性/能量变化。"""
         self.refresh_stat_values(attacker_ui)
         self.refresh_stat_values(defender_ui)
 
@@ -610,6 +591,7 @@ class DamageWindowLogic:
         else:
             atk_val = 0
             dfn_val = 1
+
         try:
             skill_cost = int(float(attacker_ui["cost_entry"].get()))
         except (TypeError, ValueError):

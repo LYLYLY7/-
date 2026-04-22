@@ -131,7 +131,7 @@ def calculate_final_damage(pwr, atk_val, dfn_val, stab=1.0, element_mult=1.0, bu
         
         # --- 6. 结果处理 ---
         # 返回最终伤害数字，并五舍六入到整数（实战中通常显示整数伤害）
-        return math.floor(damage+0.4)
+        return round_half_up(damage)
         
     except Exception as e:
         # 如果计算出错（如参数类型不对），在控制台打印错误并返回0

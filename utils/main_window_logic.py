@@ -86,6 +86,7 @@ class MainWindowLogic:
         messagebox.showinfo("成功", "所有阵容已同步至 data 目录")
 
     def on_lineup_change(self, side):
+        self.all_lineups = self.dm.load_lineups()  # 重新加载以同步文件数据
         self.current_side = side
         if side == "己方":
             self.view.enemy_lineup_selector.selection_clear(0, tk.END)

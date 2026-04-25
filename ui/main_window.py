@@ -44,8 +44,15 @@ class PetApp:
         self.top_f = ttk.LabelFrame(right_panel, text="第一步：选择精灵")
         self.top_f.pack(fill="x", padx=10, pady=5)
         self.search_var = tk.StringVar()
-        self.search_entry = ttk.Entry(self.top_f, textvariable=self.search_var, font=('Arial', 11))
+        self.search_entry = ttk.Entry(self.top_f, textvariable=self.search_var, font=('Arial', 11), style="White.TEntry")
         self.search_entry.pack(padx=10, pady=10, fill="x", expand=True)
+
+        style = ttk.Style(self.root)
+        style.configure("White.TCombobox", fieldbackground="white", background="white")
+        style.map("White.TCombobox",
+                  fieldbackground=[('readonly', 'white')],
+                  background=[('readonly', 'white')])
+        style.configure("White.TEntry", fieldbackground="white", background="white")
 
         self.pet_result_frame = ttk.Frame(right_panel)
         self.pet_result_scrollbar = ttk.Scrollbar(self.pet_result_frame, orient="vertical")
@@ -77,11 +84,11 @@ class PetApp:
             base_l = ttk.Label(self.attr_f, text="-", width=5)
             base_l.grid(row=row_idx, column=1)
             
-            iv_c = ttk.Combobox(self.attr_f, values=self.IV_OPTIONS, width=5, state="readonly")
+            iv_c = ttk.Combobox(self.attr_f, values=self.IV_OPTIONS, width=5, state="readonly", style="White.TCombobox")
             iv_c.set("0")
             iv_c.grid(row=row_idx, column=2, padx=5)
             
-            nat_c = ttk.Combobox(self.attr_f, values=self.NATURE_OPTIONS, width=5, state="readonly")
+            nat_c = ttk.Combobox(self.attr_f, values=self.NATURE_OPTIONS, width=5, state="readonly", style="White.TCombobox")
             nat_c.set("1.0")
             nat_c.grid(row=row_idx, column=3, padx=5)
             
@@ -97,7 +104,7 @@ class PetApp:
             sf = ttk.Frame(self.skill_f)
             sf.pack(fill="x", pady=5)
             sv = tk.StringVar()
-            entry = ttk.Entry(sf, textvariable=sv)
+            entry = ttk.Entry(sf, textvariable=sv, style="White.TEntry")
             entry.pack(side="left", fill="x", expand=True, padx=5)
             self.skill_vars.append(sv)
             self.skill_entries.append(entry)

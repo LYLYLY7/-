@@ -87,20 +87,28 @@ class MainWindowLogic:
 
     def on_lineup_change(self, side):
         self.current_side = side
+        if side == "己方":
+            self.view.enemy_lineup_selector.selection_clear(0, tk.END)
+        else:
+            self.view.ally_lineup_selector.selection_clear(0, tk.END)
+
         selector = self.view.ally_lineup_selector if side == "己方" else self.view.enemy_lineup_selector
         self.view.pet_listbox.delete(0, tk.END)
         selection = selector.curselection()
-        if selection:
-            lineup_name = selector.get(selection[0])
-            for pet in self.all_lineups[side].get(lineup_name, []):
-                stats = pet.get("实战属性", {})
-                stats_str = " ".join([f"{k}:{v}" for k, v in stats.items()])
-                skills = pet.get("技能配置", [])
-                skills_str = " | ".join([s["名称"] for s in skills if s.get("名称")])
-                if not skills_str:
-                    skills_str = "未携带技能"
-                display_text = f"【{pet['名字']}】 属性: [{stats_str}] 技能: [{skills_str}]"
-                self.view.pet_listbox.insert(tk.END, display_text)
+        if not selection:
+            self.current_side = None
+            return
+
+        lineup_name = selector.get(selection[0])
+        for pet in self.all_lineups[side].get(lineup_name, []):
+            stats = pet.get("实战属性", {})
+            stats_str = " ".join([f"{k}:{v}" for k, v in stats.items()])
+            skills = pet.get("技能配置", [])
+            skills_str = " | ".join([s["名称"] for s in skills if s.get("名称")])
+            if not skills_str:
+                skills_str = "未携带技能"
+            display_text = f"【{pet['名字']}】 属性: [{stats_str}] 技能: [{skills_str}]"
+            self.view.pet_listbox.insert(tk.END, display_text)
 
     def update_calc(self):
         if not self.current_pet_data:

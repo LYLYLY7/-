@@ -8,6 +8,7 @@ from utils.trait_best_partner import BestPartnerTraitService
 
 class DamageWindowLogic:
     CACHE_FILE = Path(__file__).resolve().parents[1] / "data" / "battle_pet_cache.json"
+    LINEUPS_FILE = Path(__file__).resolve().parents[1] / "data" / "all_lineups.json"
     PANEL_KEYS = {"本人": "本人", "对方": "对方"}
     SKILL_FIELDS = ["技能名称", "属性", "消耗", "类型", "威力", "描述"]
     PET_FIELDS = ["名字", "种族值", "基础属性", "克制表", "特性"]
@@ -38,7 +39,8 @@ class DamageWindowLogic:
 
     def bind_events(self):
         """绑定所有控件事件和按钮回调。"""
-        self.view.load_all_button.config(command=self.load_all_data)
+        command = self.load_lineup_from_all_lineups if self.view.use_lineup_load else self.load_all_data
+        self.view.load_button.config(command=command)
         self.view.reset_button.config(command=self.reset_all)
         self.view.left_to_right_button.config(command=lambda: self.run_calc(self.view.left_ui, self.view.right_ui, self.view.left_to_right_result, "本人打对方伤害"))
         self.view.right_to_left_button.config(command=lambda: self.run_calc(self.view.right_ui, self.view.left_ui, self.view.right_to_left_result, "对方打本人伤害"))
@@ -108,7 +110,7 @@ class DamageWindowLogic:
         """加载成功后，按缓存技能更新按钮文案。"""
         for skill_index, button in enumerate(ui_map["skill_buttons"]):
             skill_data = ui_map.get("loaded_skills", [{}, {}, {}, {}])[skill_index]
-            skill_name = skill_data.get("技能名称", "")
+            skill_name = skill_data.get("技能名称") or skill_data.get("名称", "")
             button.config(text=skill_name if skill_name else f"技能{skill_index + 1}")
 
     def show_warning(self, message):
@@ -134,6 +136,7 @@ class DamageWindowLogic:
 
         self.view.left_to_right_result.config(text="造成伤害: 0")
         self.view.right_to_left_result.config(text="造成伤害: 0")
+        self.view.update_idletasks()  # 强制UI立即更新
 
     def load_all_data(self):
         """统一加载入口：校验、生成缓存文件，并用缓存刷新界面。"""
@@ -168,6 +171,104 @@ class DamageWindowLogic:
 
         self.update_skill_button_texts_from_loaded(self.view.left_ui)
         self.update_skill_button_texts_from_loaded(self.view.right_ui)
+
+    def load_lineup_from_all_lineups(self):
+        """从 data/all_lineups.json 读取第一个己方/对方阵容并填充面板。"""
+        lineup_data = self.read_all_lineups_file()
+        if lineup_data is None:
+            return
+
+        ally_lineups = lineup_data.get("己方", {})
+        if not ally_lineups:
+            self.show_warning("all_lineups.json 中没有己方阵容")
+            return
+
+        first_ally_lineup = next(iter(ally_lineups.values()), None)
+        if not first_ally_lineup:
+            self.show_warning("己方阵容为空")
+            return
+
+        ally_pet = first_ally_lineup[0] if isinstance(first_ally_lineup, list) and first_ally_lineup else None
+        if not ally_pet:
+            self.show_warning("第一个己方阵容没有精灵")
+            return
+
+        self.apply_lineup_pet_to_panel(self.view.left_ui, ally_pet)
+
+        opponent_lineups = lineup_data.get("对方")
+        if not opponent_lineups:
+            return
+
+        first_opponent_lineup = next(iter(opponent_lineups.values()), None)
+        if not first_opponent_lineup:
+            return
+
+        opponent_pet = first_opponent_lineup[0] if isinstance(first_opponent_lineup, list) and first_opponent_lineup else None
+        if not opponent_pet:
+            return
+
+        self.apply_lineup_pet_to_panel(self.view.right_ui, opponent_pet)
+
+    def read_all_lineups_file(self):
+        if not self.LINEUPS_FILE.exists():
+            self.show_warning("找不到 data/all_lineups.json")
+            return None
+        try:
+            with self.LINEUPS_FILE.open("r", encoding="utf-8") as file:
+                return json.load(file)
+        except Exception as exc:
+            self.show_warning(f"读取all_lineups.json失败：{exc}")
+            return None
+
+    def apply_lineup_pet_to_panel(self, ui_map, pet_entry):
+        pet_name = pet_entry.get("名字", "")
+        ui_map["name_entry"].delete(0, "end")
+        ui_map["name_entry"].insert(0, pet_name)
+
+        self.hide_pet_popup(ui_map)
+        self.hide_skill_popup(ui_map)
+        ui_map["skill_candidates"] = []
+        ui_map["active_skill_index"] = 0
+        ui_map["active_skill_entry"] = ui_map["skill_entries"][0]
+
+        pet_config = pet_entry.get("数值配置", {})
+        base_stats = pet_config.get("基础属性", {})
+        iv_values = pet_config.get("IV", {})
+        nature_values = pet_config.get("性格系数", {})
+
+        for stat_name, widgets in ui_map["stats"].items():
+            widgets["base"].config(text=str(base_stats.get(stat_name, 0)))
+            widgets["iv"].set(str(iv_values.get(stat_name, "0")))
+            widgets["nat"].set(str(nature_values.get(stat_name, "1.0")))
+
+        ui_map["loaded_pet_data"] = pet_entry
+        self.populate_skill_options(ui_map, self.db_data.get(pet_name, {}))
+
+        raw_skills = pet_entry.get("技能配置", [])
+        if len(raw_skills) > 4:
+            raw_skills = raw_skills[:4]
+        normalized_skills = [self.normalize_skill_entry(skill) for skill in raw_skills]
+        ui_map["loaded_skills"] = normalized_skills + [{}] * (4 - len(normalized_skills))
+        for idx in range(4):
+            entry = ui_map["skill_entries"][idx]
+            entry.delete(0, "end")
+            skill_name = ui_map["loaded_skills"][idx].get("技能名称", "")
+            if skill_name:
+                entry.insert(0, skill_name)
+            ui_map["skill_buttons"][idx].config(text=skill_name or f"技能{idx + 1}")
+
+        self.load_pet_stats(
+            ui_map,
+            {
+                "名字": pet_name,
+                "基础属性": base_stats,
+                "克制表": pet_entry.get("克制表", {}),
+                "特性": pet_entry.get("特性", {}),
+            },
+        )
+
+        self.refresh_stat_values(ui_map)
+        self.update_skill_button_texts_from_loaded(ui_map)
 
     def build_cached_panel_data(self, ui_map, require_first_skill):
         """从原始数据库提取单侧缓存数据。"""
@@ -341,9 +442,17 @@ class DamageWindowLogic:
         """在精灵技能集合中查找指定技能详情。"""
         for key in ["精灵技能列表", "血脉技能列表", "可学技能石列表"]:
             for skill in pet_data.get(key, []):
-                if skill.get("技能名称") == skill_name:
+                if skill.get("技能名称") == skill_name or skill.get("名称") == skill_name:
                     return skill
         return None
+
+    def normalize_skill_entry(self, skill_data):
+        if not skill_data:
+            return {}
+        normalized = {field: skill_data.get(field, "") for field in self.SKILL_FIELDS}
+        if not normalized.get("技能名称"):
+            normalized["技能名称"] = skill_data.get("名称", "")
+        return normalized
 
     def fill_skill_fields(self, ui_map, skill_data):
         """把技能详情写入“技能与环境参数”区域。"""
@@ -373,6 +482,7 @@ class DamageWindowLogic:
 
         loaded_skills = ui_map.get("loaded_skills", [{}, {}, {}, {}])
         skill_data = loaded_skills[skill_index] if skill_index < len(loaded_skills) else {}
+        skill_data = self.normalize_skill_entry(skill_data)
         if not skill_data or not skill_data.get("技能名称"):
             if not silent:
                 self.show_warning(f"第{skill_index + 1}个技能尚未填写")

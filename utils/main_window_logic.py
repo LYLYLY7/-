@@ -64,7 +64,7 @@ class MainWindowLogic:
         if not self.db:
             messagebox.showwarning("提示", "精灵数据库为空，请先同步数据！")
             return
-        DamageWindow(self.root, self.db)
+        DamageWindow(self.root, self.db, use_lineup_load=True)
 
     def delete_selected_pet(self):
         if not self.current_side:

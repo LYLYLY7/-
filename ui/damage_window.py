@@ -5,17 +5,19 @@ from utils.damage_window_logic import DamageWindowLogic
 
 
 class DamageWindow(tk.Toplevel):
-    def __init__(self, parent, db_data):
+    def __init__(self, parent, db_data, use_lineup_load=False):
         """实战伤害推演窗口。
 
         外部参数来源：
         - parent: 由主窗口传入，作为本窗口父级。
         - db_data: 由数据管理层传入的精灵数据库字典。
+        - use_lineup_load: 是否使用阵容加载模式（从主窗口启动时为 True）。
         """
         super().__init__(parent)
         self.title("实战伤害推演计算器")
         self.geometry("960x830")
 
+        self.use_lineup_load = use_lineup_load
         self.atk_type_values = ["物攻", "魔攻", "状态"]
         self.attr_values = ["无", "普通", "火", "水", "草", "光", "地", "冰", "龙", "电", "毒", "虫", "武", "翼", "萌", "幽", "恶", "机械", "幻"]
         self.iv_values = ["0", "7", "8", "9", "10"]
@@ -83,8 +85,9 @@ class DamageWindow(tk.Toplevel):
         self.load_frame.columnconfigure(2, weight=1)
         self.load_frame.rowconfigure(0, weight=1)
         self.create_action_panel(self.load_frame, self.left_ui, 0, "本人操作")
-        self.load_all_button = ttk.Button(self.load_frame, text="加载", width=10)
-        self.load_all_button.grid(row=0, column=1, padx=12)
+        button_text = "阵容加载" if self.use_lineup_load else "加载"
+        self.load_button = ttk.Button(self.load_frame, text=button_text, width=10)
+        self.load_button.grid(row=0, column=1, padx=12)
         self.create_action_panel(self.load_frame, self.right_ui, 2, "对方操作")
 
         self.skill_area = ttk.LabelFrame(self.main_frame, text="技能与环境参数")

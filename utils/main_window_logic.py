@@ -17,18 +17,23 @@ class MainWindowLogic:
         self.full_skill_pool = []
         self.pet_search_candidates = []
         self.active_skill_index = None
+        self.current_side = None
 
         self.bind_events()
-        self.refresh_lineup_list()
+        self.refresh_ally_lineup_list()
+        self.refresh_enemy_lineup_list()
 
     def bind_events(self):
-        self.view.lineup_selector.bind("<<ListboxSelect>>", self.on_lineup_change)
+        self.view.ally_lineup_selector.bind("<<ListboxSelect>>", lambda event: self.on_lineup_change("己方"))
+        self.view.enemy_lineup_selector.bind("<<ListboxSelect>>", lambda event: self.on_lineup_change("对方"))
 
-        self.view.new_lineup_button.config(command=self.add_new_lineup)
-        self.view.delete_lineup_button.config(command=self.delete_lineup)
-        self.view.load_pet_button.config(command=self.load_pet)
+        self.view.ally_new_lineup_button.config(command=lambda: self.add_new_lineup("己方"))
+        self.view.ally_delete_lineup_button.config(command=lambda: self.delete_lineup("己方"))
+        self.view.enemy_new_lineup_button.config(command=lambda: self.add_new_lineup("对方"))
+        self.view.enemy_delete_lineup_button.config(command=lambda: self.delete_lineup("对方"))
         self.view.open_damage_button.config(command=self.open_damage_calculator)
-        self.view.add_pet_button.config(command=self.add_pet_to_current)
+        self.view.add_ally_button.config(command=self.add_pet_to_ally)
+        self.view.add_enemy_button.config(command=self.add_pet_to_enemy)
         self.view.delete_pet_button.config(command=self.delete_selected_pet)
         self.view.save_button.config(command=self.save_to_disk)
 
@@ -62,28 +67,32 @@ class MainWindowLogic:
         DamageWindow(self.root, self.db)
 
     def delete_selected_pet(self):
-        lineup_indices = self.view.lineup_selector.curselection()
+        if not self.current_side:
+            messagebox.showwarning("提示", "请先选择一个阵容")
+            return
         pet_indices = self.view.pet_listbox.curselection()
-
-        if lineup_indices and pet_indices:
-            lineup_name = self.view.lineup_selector.get(lineup_indices[0])
-            pet_idx = pet_indices[0]
-            self.all_lineups[lineup_name].pop(pet_idx)
-            self.dm.save_lineups(self.all_lineups)
-            self.on_lineup_change(None)
-        else:
+        if not pet_indices:
             messagebox.showwarning("提示", "请先在名单中点击选中一只精灵")
+            return
+        selector = self.view.ally_lineup_selector if self.current_side == "己方" else self.view.enemy_lineup_selector
+        lineup_name = selector.get(selector.curselection()[0])
+        pet_idx = pet_indices[0]
+        self.all_lineups[self.current_side][lineup_name].pop(pet_idx)
+        self.dm.save_lineups(self.all_lineups)
+        self.on_lineup_change(self.current_side)
 
     def save_to_disk(self):
         self.dm.save_lineups(self.all_lineups)
         messagebox.showinfo("成功", "所有阵容已同步至 data 目录")
 
-    def on_lineup_change(self, event):
-        selection = self.view.lineup_selector.curselection()
+    def on_lineup_change(self, side):
+        self.current_side = side
+        selector = self.view.ally_lineup_selector if side == "己方" else self.view.enemy_lineup_selector
         self.view.pet_listbox.delete(0, tk.END)
+        selection = selector.curselection()
         if selection:
-            lineup_name = self.view.lineup_selector.get(selection[0])
-            for pet in self.all_lineups.get(lineup_name, []):
+            lineup_name = selector.get(selection[0])
+            for pet in self.all_lineups[side].get(lineup_name, []):
                 stats = pet.get("实战属性", {})
                 stats_str = " ".join([f"{k}:{v}" for k, v in stats.items()])
                 skills = pet.get("技能配置", [])
@@ -123,12 +132,25 @@ class MainWindowLogic:
         for name in self.all_lineups.keys():
             self.view.lineup_selector.insert(tk.END, name)
 
-    def add_new_lineup(self):
+    def refresh_ally_lineup_list(self):
+        self.view.ally_lineup_selector.delete(0, tk.END)
+        for name in self.all_lineups["己方"].keys():
+            self.view.ally_lineup_selector.insert(tk.END, name)
+
+    def refresh_enemy_lineup_list(self):
+        self.view.enemy_lineup_selector.delete(0, tk.END)
+        for name in self.all_lineups["对方"].keys():
+            self.view.enemy_lineup_selector.insert(tk.END, name)
+
+    def add_new_lineup(self, side):
         new_name = self.ask_lineup_name()
-        if new_name and new_name not in self.all_lineups:
-            self.all_lineups[new_name] = []
+        if new_name and new_name not in self.all_lineups[side]:
+            self.all_lineups[side][new_name] = []
             self.dm.save_lineups(self.all_lineups)
-            self.refresh_lineup_list()
+            if side == "己方":
+                self.refresh_ally_lineup_list()
+            else:
+                self.refresh_enemy_lineup_list()
 
     def ask_lineup_name(self):
         dialog = tk.Toplevel(self.root)
@@ -177,14 +199,19 @@ class MainWindowLogic:
         self.root.wait_window(dialog)
         return result["value"]
 
-    def delete_lineup(self):
-        selection = self.view.lineup_selector.curselection()
+    def delete_lineup(self, side):
+        selector = self.view.ally_lineup_selector if side == "己方" else self.view.enemy_lineup_selector
+        selection = selector.curselection()
         if selection:
-            name = self.view.lineup_selector.get(selection[0])
-            del self.all_lineups[name]
+            name = selector.get(selection[0])
+            del self.all_lineups[side][name]
             self.dm.save_lineups(self.all_lineups)
-            self.refresh_lineup_list()
+            if side == "己方":
+                self.refresh_ally_lineup_list()
+            else:
+                self.refresh_enemy_lineup_list()
             self.view.pet_listbox.delete(0, tk.END)
+            self.current_side = None
 
     def load_pet(self):
         name = self.view.search_var.get().strip()
@@ -274,7 +301,10 @@ class MainWindowLogic:
         self.root.after(120, self.hide_pet_popup_if_needed)
 
     def hide_pet_popup_if_needed(self):
-        focused = self.root.focus_get()
+        try:
+            focused = self.root.focus_get()
+        except KeyError:
+            focused = None
         if focused in (self.view.search_entry, self.view.pet_result_listbox):
             return
         self.hide_pet_popup()
@@ -360,26 +390,106 @@ class MainWindowLogic:
     def hide_skill_popup_if_needed(self):
         if self.active_skill_index is None:
             return
-        focused = self.root.focus_get()
+        try:
+            focused = self.root.focus_get()
+        except KeyError:
+            focused = None
         if focused in (self.view.skill_entries[self.active_skill_index], self.view.skill_result_listbox):
             return
         self.hide_skill_popup()
 
     def add_pet_to_current(self):
-        selection = self.view.lineup_selector.curselection()
-        if not selection:
-            messagebox.showwarning("提示", "请先在左侧选择一个阵容")
+        if not self.current_side:
+            messagebox.showwarning("提示", "请先选择一个阵容")
             return
         if not self.current_pet_data:
             messagebox.showwarning("提示", "请先载入一只精灵")
             return
 
-        lineup_name = self.view.lineup_selector.get(selection[0])
+        selector = self.view.ally_lineup_selector if self.current_side == "己方" else self.view.enemy_lineup_selector
+        lineup_name = selector.get(selector.curselection()[0])
         pet_entry = {
             "名字": self.current_pet_data["名字"],
             "实战属性": {key: int(widgets["res"].cget("text")) for key, widgets in self.view.inputs.items()},
             "技能配置": [{"名称": skill_var.get()} for skill_var in self.view.skill_vars if skill_var.get()],
         }
-        self.all_lineups[lineup_name].append(pet_entry)
+        self.all_lineups[self.current_side][lineup_name].append(pet_entry)
         self.dm.save_lineups(self.all_lineups)
-        self.on_lineup_change(None)
+        self.on_lineup_change(self.current_side)
+
+    def get_current_config(self):
+        config = {
+            "基础属性": {stat: int(self.view.inputs[stat]["base"].cget("text")) for stat in self.view.inputs},
+            "IV": {stat: self.view.inputs[stat]["iv"].get() for stat in self.view.inputs},
+            "性格系数": {stat: self.view.inputs[stat]["nat"].get() for stat in self.view.inputs}
+        }
+        return config
+
+    def get_pet_info(self, key):
+        if self.current_pet_data and key in self.current_pet_data:
+            return self.current_pet_data[key]
+        return {}
+
+    def get_skill_details(self, skill_names):
+        details = []
+        if not self.current_pet_data:
+            return details
+        all_skills = []
+        for skill_list in ["精灵技能列表", "血脉技能列表", "可学技能石列表"]:
+            if skill_list in self.current_pet_data:
+                all_skills.extend(self.current_pet_data[skill_list])
+        for name in skill_names:
+            for skill in all_skills:
+                if skill.get("技能名称") == name:
+                    details.append({
+                        "名称": name,
+                        "属性": skill.get("属性", ""),
+                        "消耗": skill.get("消耗", 0),
+                        "类型": skill.get("类型", ""),
+                        "威力": skill.get("威力", 0),
+                        "描述": skill.get("描述", "")
+                    })
+                    break
+        return details
+
+    def add_pet_to_ally(self):
+        if not self.current_pet_data:
+            messagebox.showwarning("提示", "请先载入一只精灵")
+            return
+        selection = self.view.ally_lineup_selector.curselection()
+        if not selection:
+            messagebox.showwarning("提示", "请先在己方阵容中选择一个阵容")
+            return
+        lineup_name = self.view.ally_lineup_selector.get(selection[0])
+        pet_entry = {
+            "名字": self.current_pet_data["名字"],
+            "数值配置": self.get_current_config(),
+            "实战属性": {key: int(widgets["res"].cget("text")) for key, widgets in self.view.inputs.items()},
+            "克制表": self.get_pet_info("克制表"),
+            "特性": self.get_pet_info("特性"),
+            "技能配置": self.get_skill_details([skill_var.get() for skill_var in self.view.skill_vars if skill_var.get()])
+        }
+        self.all_lineups["己方"][lineup_name].append(pet_entry)
+        self.dm.save_lineups(self.all_lineups)
+        self.on_lineup_change("己方")
+
+    def add_pet_to_enemy(self):
+        if not self.current_pet_data:
+            messagebox.showwarning("提示", "请先载入一只精灵")
+            return
+        selection = self.view.enemy_lineup_selector.curselection()
+        if not selection:
+            messagebox.showwarning("提示", "请先在对方阵容中选择一个阵容")
+            return
+        lineup_name = self.view.enemy_lineup_selector.get(selection[0])
+        pet_entry = {
+            "名字": self.current_pet_data["名字"],
+            "数值配置": self.get_current_config(),
+            "实战属性": {key: int(widgets["res"].cget("text")) for key, widgets in self.view.inputs.items()},
+            "克制表": self.get_pet_info("克制表"),
+            "特性": self.get_pet_info("特性"),
+            "技能配置": self.get_skill_details([skill_var.get() for skill_var in self.view.skill_vars if skill_var.get()])
+        }
+        self.all_lineups["对方"][lineup_name].append(pet_entry)
+        self.dm.save_lineups(self.all_lineups)
+        self.on_lineup_change("对方")

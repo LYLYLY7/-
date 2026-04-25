@@ -13,16 +13,30 @@ class PetApp:
         self.logic = MainWindowLogic(self, data_manager)
 
     def setup_ui(self):
-        left_panel = ttk.LabelFrame(self.root, text="阵容管理")
-        left_panel.pack(side="left", fill="y", padx=10, pady=10)
+        left_frame = ttk.Frame(self.root)
+        left_frame.pack(side="left", fill="y", padx=10, pady=10)
 
-        self.lineup_selector = tk.Listbox(left_panel, width=20, font=('Arial', 10), exportselection=False)
-        self.lineup_selector.pack(padx=5, pady=5, fill="both", expand=True)
+        ally_panel = ttk.LabelFrame(left_frame, text="己方阵容")
+        ally_panel.pack(side="top", fill="both", expand=True, padx=5, pady=5)
 
-        self.new_lineup_button = ttk.Button(left_panel, text="新建阵容")
-        self.new_lineup_button.pack(fill="x", padx=5, pady=2)
-        self.delete_lineup_button = ttk.Button(left_panel, text="删除阵容")
-        self.delete_lineup_button.pack(fill="x", padx=5, pady=2)
+        self.ally_lineup_selector = tk.Listbox(ally_panel, width=20, font=('Arial', 10), exportselection=False)
+        self.ally_lineup_selector.pack(padx=5, pady=5, fill="both", expand=True)
+
+        self.ally_new_lineup_button = ttk.Button(ally_panel, text="新建阵容")
+        self.ally_new_lineup_button.pack(fill="x", padx=5, pady=2)
+        self.ally_delete_lineup_button = ttk.Button(ally_panel, text="删除阵容")
+        self.ally_delete_lineup_button.pack(fill="x", padx=5, pady=2)
+
+        enemy_panel = ttk.LabelFrame(left_frame, text="对方阵容")
+        enemy_panel.pack(side="bottom", fill="both", expand=True, padx=5, pady=5)
+
+        self.enemy_lineup_selector = tk.Listbox(enemy_panel, width=20, font=('Arial', 10), exportselection=False)
+        self.enemy_lineup_selector.pack(padx=5, pady=5, fill="both", expand=True)
+
+        self.enemy_new_lineup_button = ttk.Button(enemy_panel, text="新建阵容")
+        self.enemy_new_lineup_button.pack(fill="x", padx=5, pady=2)
+        self.enemy_delete_lineup_button = ttk.Button(enemy_panel, text="删除阵容")
+        self.enemy_delete_lineup_button.pack(fill="x", padx=5, pady=2)
 
         right_panel = ttk.Frame(self.root)
         right_panel.pack(side="right", fill="both", expand=True)
@@ -31,9 +45,7 @@ class PetApp:
         self.top_f.pack(fill="x", padx=10, pady=5)
         self.search_var = tk.StringVar()
         self.search_entry = ttk.Entry(self.top_f, textvariable=self.search_var, font=('Arial', 11))
-        self.search_entry.pack(side="left", padx=10, pady=10, fill="x", expand=True)
-        self.load_pet_button = ttk.Button(self.top_f, text="载入数据")
-        self.load_pet_button.pack(side="left", padx=10)
+        self.search_entry.pack(padx=10, pady=10, fill="x", expand=True)
 
         self.pet_result_frame = ttk.Frame(right_panel)
         self.pet_result_scrollbar = ttk.Scrollbar(self.pet_result_frame, orient="vertical")
@@ -127,8 +139,10 @@ class PetApp:
         
         btn_f = ttk.Frame(bottom_f)
         btn_f.pack(side="right", padx=10)
-        self.add_pet_button = ttk.Button(btn_f, text="加入该阵容")
-        self.add_pet_button.pack(fill="x", pady=2)
+        self.add_ally_button = ttk.Button(btn_f, text="加入己方阵容")
+        self.add_ally_button.pack(fill="x", pady=2)
+        self.add_enemy_button = ttk.Button(btn_f, text="加入对方阵容")
+        self.add_enemy_button.pack(fill="x", pady=2)
         self.delete_pet_button = ttk.Button(btn_f, text="删除该精灵")
         self.delete_pet_button.pack(fill="x", pady=2)
         self.save_button = ttk.Button(btn_f, text="保存所有阵容")

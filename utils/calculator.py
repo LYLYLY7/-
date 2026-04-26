@@ -1,53 +1,101 @@
-import math  # 导入数学库，用于对计算结果进行向下取整
+"""
+伤害计算核心模块。
+
+功能：提供精灵面板属性计算（calc_stat）、本系加成判定（calculate_stab）、
+      属性克制判定（calculate_element_multiplier）、最终伤害计算
+      （calculate_final_damage）四项纯函数计算能力。
+外部依赖：
+- math: 用于向下取整
+"""
+
+import math
+
+from utils.constants import STAT_NAMES
+
 
 def round_half_up(value):
-    """使用传统四舍五入规则，避免 Python 内置 round 的银行家舍入。"""
+    """
+    传统四舍五入工具函数。
+
+    功能：使用 math.floor(value + 0.5) 实现四舍五入，避免 Python 内置
+          round() 的银行家舍入（偶舍奇入）行为。
+
+    外部参数：
+    - value (float/str): 需要四舍五入的数值
+
+    内部参数：无
+
+    返回值：
+    - int: 四舍五入后的整数值
+    """
     return math.floor(float(value) + 0.5)
+
 
 def calc_stat(base, iv, nature, is_hp=False):
     """
-    计算精灵的面板属性值（实战中看到的数值）
-    base: 种族值 | iv: 个体值 | nature: 性格修正系数
+    计算精灵的单面板属性值（实战中显示的数值）。
+
+    功能：根据种族值、个体值、性格系数，使用洛克王国面板公式计算。
+          HP 公式与五围公式不同，由 is_hp 参数区分。
+
+    公式说明：
+    - HP:   round(1.7 × (种族 + 3 × 个体) + 70) × 性格 + 100
+    - 五围: round(1.1 × (种族 + 3 × 个体) + 10) × 性格 + 50
+
+    外部参数：
+    - base (str/int/float):
+        来源文件：ui/main_window.py 或 ui/damage_window.py 中 base_label 的 text
+        含义：精灵的种族值（从数据库"基础属性"字段提取）
+    - iv (str/int/float):
+        来源文件：用户从 IV 下拉框选择的值（"0"/"7"/"8"/"9"/"10"）
+        含义：个体值（0-10 的整数，通常使用 0/7/8/9/10）
+    - nature (str/int/float):
+        来源文件：用户从性格系数下拉框选择的值（"0.9"/"1.0"/"1.1"/"1.2"）
+        含义：性格对当前属性的修正系数
+    - is_hp (bool):
+        来源文件：调用方参数（如 update_calc() 中 stat == "生命"）
+        含义：是否为 HP 面板（True=HP，False=五围）
+
+    内部参数：
+    - base, iv, nature: 转为 float 后的计算值
+    - val: 计算过程中的面板中间值
+
+    返回值：
+    - int: 计算后的面板值，异常返回 0
     """
     try:
-        # 将输入值转换为浮点数，确保计算精度并防止字符串输入导致报错
         base, iv, nature = float(base), float(iv), float(nature)
-        
+
         if is_hp:
-            # 原公式保留，便于后续回溯：
-            # val = (1.7 * (base + 3 * iv) + 70) * nature + 100
-            #
-            # 当前改为分步四舍五入：
-            # 先分别处理种族项和个体项，再乘性格，最后再次四舍五入到面板值。
-            val = round_half_up(1.7 * (base+ (3 * iv)) + 70) * nature + 100
+            val = round_half_up(1.7 * (base + 3 * iv) + 70) * nature + 100
         else:
-            # 原公式保留，便于后续回溯：
-            # val = (1.1 * (base + 3 * iv) + 10) * nature + 50
-            #
-            # 当前改为分步四舍五入：
-            # 先分别处理种族项和个体项，再乘性格，最后再次四舍五入到面板值。
-            val = round_half_up(1.1 * (base + (3 * iv)) + 10) * nature + 50
-            
-        # 原显示取整方式保留，便于后续回溯：
-        # return math.floor(val + 0.4)
+            val = round_half_up(1.1 * (base + 3 * iv) + 10) * nature + 50
+
         return round_half_up(val)
-    except:
-        # 如果输入数据非法（比如空值），返回0，保证程序不闪退
+    except Exception:
         return 0
+
 
 def calculate_stab(skill_type, skill_attr, pet_elements):
     """
-    自动计算技能是否享受本系加成（STAB）。
+    自动计算技能是否享受本系加成（STAB, Same-Type Attack Bonus）。
 
-    功能说明：
-    - 只有当技能类型为“物攻”或“魔攻”时，才可能触发本系加成。
-    - 当技能属性存在于精灵元素列表中时，返回 1.25。
-    - 其他情况一律返回 1。
+    功能：判断技能类型是否为"物攻"或"魔攻"、技能属性是否非空且非"无"、
+          技能属性是否出现在精灵的元素列表中。满足条件返回 1.25，否则返回 1。
 
-    参数：
-    - skill_type: 技能类型，例如 "物攻"、"魔攻"、"状态"
-    - skill_attr: 技能属性，例如 "火"、"水"
-    - pet_elements: 精灵元素列表，例如 ["火"] 或 ["火", "龙"]
+    外部参数：
+    - skill_type (str):
+        来源文件：ui/damage_window.py 中 atk_type 下拉框
+        含义：技能类型，"物攻"/"魔攻"/"状态"
+    - skill_attr (str):
+        来源文件：ui/damage_window.py 中 atk_attr 下拉框
+        含义：技能属性，如"火"、"水"、"无"等
+    - pet_elements (list):
+        来源文件：utils/damage_window_logic.py 从数据库提取
+        含义：精灵的元素列表，如 ["火"] 或 ["火", "龙"]
+
+    返回值：
+    - float: 1.25（本系加成触发）或 1（未触发）
     """
     if skill_type not in {"物攻", "魔攻"}:
         return 1
@@ -60,20 +108,29 @@ def calculate_stab(skill_type, skill_attr, pet_elements):
 
     return 1
 
+
 def calculate_element_multiplier(skill_attr, skill_power, defender_kz_table):
     """
-    自动计算技能属性克制倍率。
+    自动计算技能属性对对方精灵的克制倍率。
 
-    功能说明：
-    - 只有当技能威力不为 0 时，才进行属性克制判断。
-    - 如果技能属性出现在对方精灵克制表的“被克制”列表中，返回 2。
-    - 如果技能属性出现在对方精灵克制表的“抵抗”列表中，返回 0.5。
-    - 其他情况一律返回 1。
+    功能：判断技能威力非零、技能属性非空且非"无"后，在对方克制表中查找：
+          - 技能属性在"被克制"列表中 → 返回 2（克制）
+          - 技能属性在"抵抗"列表中   → 返回 0.5（抵抗）
+          - 其他情况                 → 返回 1（正常）
 
-    参数：
-    - skill_attr: 技能属性，例如 "火"、"水"
-    - skill_power: 技能威力，可以是字符串或数字
-    - defender_kz_table: 对方精灵的克制表字典
+    外部参数：
+    - skill_attr (str):
+        来源文件：ui/damage_window.py 中 atk_attr 下拉框
+        含义：技能属性，如"火"、"水"
+    - skill_power (str/int/float):
+        来源文件：ui/damage_window.py 中 power_entry 输入框
+        含义：技能威力值，0 表示无威力（不进行克制判断）
+    - defender_kz_table (dict):
+        来源文件：utils/damage_window_logic.py 从阵容缓存或数据库获取
+        含义：对方精灵的克制表，结构为 {"克制": [...], "被克制": [...], "抵抗": [...], "被抵抗": [...]}
+
+    返回值：
+    - float: 2（克制） / 0.5（抵抗） / 1（正常）
     """
     try:
         if float(skill_power) == 0:
@@ -91,49 +148,79 @@ def calculate_element_multiplier(skill_attr, skill_power, defender_kz_table):
         return 0.5
     return 1
 
-def calculate_final_damage(pwr, atk_val, dfn_val, stab=1.0, element_mult=1.0, buff_mult=1.0, hits=1, other_mult=1.0):
+
+def calculate_final_damage(
+    pwr, atk_val, dfn_val, stab=1.0, element_mult=1.0, buff_mult=1.0, hits=1, other_mult=1.0
+):
     """
-    核心伤害计算逻辑
-    物攻造成伤害 = 0.9 * 技能威力 * 物攻值 * 修正系数 / 对方物防值
-    魔攻造成伤害 = 0.9 * 技能威力 * 魔攻值 * 修正系数 / 对方魔防值
+    核心伤害计算函数。
+
+    公式：伤害 = 0.9 × 技能威力 × 攻击值 × 修正系数 / 防御值
+    修正系数 = STAB × 属性克制 × 增减益 × 连击数 × 其他修正
+
+    调用方在传入 atk_val/dfn_val 时区分物攻/魔攻：
+    - 物攻: atk_val = 物攻面板, dfn_val = 对方物防面板
+    - 魔攻: atk_val = 魔攻面板, dfn_val = 对方魔防面板
+
+    外部参数：
+    - pwr (str/int/float):
+        来源文件：ui/damage_window.py 中 power_entry 输入框
+        含义：技能威力值
+    - atk_val (str/int/float):
+        来源文件：utils/damage_window_logic.py 中 run_calc() 从 stats 区域读取
+        含义：攻击方对应面板值（物攻或魔攻）
+    - dfn_val (str/int/float):
+        来源文件：utils/damage_window_logic.py 中 run_calc() 从 stats 区域读取
+        含义：防守方对应面板值（物防或魔防）
+    - stab (str/float):
+        来源文件：ui/damage_window.py 中 stab_combo 下拉框
+        含义：本系加成倍率，1.25 或 1
+    - element_mult (str/float):
+        来源文件：ui/damage_window.py 中 element_combo 下拉框
+        含义：属性克制倍率，可选 3/2/1/0.5/0.33
+    - buff_mult (str/float):
+        来源文件：ui/damage_window.py 中 buff_entry 输入框
+        含义：增减益乘区，默认 1
+    - hits (str/int):
+        来源文件：ui/damage_window.py 中 hits_entry 输入框
+        含义：连击数，默认为 1
+    - other_mult (str/float):
+        来源文件：ui/damage_window.py 中 other_entry 输入框
+        含义：其他修正系数，默认 1
+
+    内部参数：
+    - pwr/atk_val/dfn_val/stab/element_mult/buff_mult/hits/other_mult: 转为对应类型后的计算值
+    - correction_factor: 各修正系数的乘积
+
+    返回值：
+    - int: 最终伤害值（四舍五入到整数），异常返回 0
     """
     try:
         # --- 1. 参数初始化与强制类型转换 ---
-        pwr = float(pwr)                # 技能威力 (例如: 100)
-        atk_val = float(atk_val)        # 攻击方属性值 (物攻或魔攻面板)
-        dfn_val = float(dfn_val)        # 防御方属性值 (物防或魔防面板)
-        
-        # --- 2. 修正系数拆解 (根据你的要求定义取值) ---
-        # 本系加成 (stab): 有则 1.25，无则 1
+        pwr = float(pwr)
+        atk_val = float(atk_val)
+        dfn_val = float(dfn_val)
+
+        # --- 2. 修正系数拆解 ---
         stab = float(stab)
-        # 属性克制 (element_mult): 取值范围 [3, 2, 1, 0.5, 0.33]
         element_mult = float(element_mult)
-        # 增减益 (buff_mult): 默认值为 1
         buff_mult = float(buff_mult)
-        # 连击数 (hits): 默认值为 1
         hits = int(hits)
-        # 其他修正 (other_mult): 默认值为 1
         other_mult = float(other_mult)
-        
+
         # --- 3. 安全检查 ---
-        # 如果防御值为0，将其设为1，防止数学上的“除以0”错误导致程序崩溃
         if dfn_val <= 0:
             dfn_val = 1
-            
+
         # --- 4. 计算综合修正系数 ---
-        # 公式：修正系数 = 本系加成 * 属性克制 * 增减益 * 连击数 * 其他
         correction_factor = stab * element_mult * buff_mult * hits * other_mult
-        
+
         # --- 5. 执行核心伤害公式 ---
-        # 统一公式：伤害 = 0.9 * 技能威力 * 攻击值 * 修正系数 / 对方防御值
-        # 注意：物攻/魔攻的区分在 UI 调用传入 atk_val 和 dfn_val 时完成
         damage = 0.9 * pwr * atk_val * correction_factor / dfn_val
-        
+
         # --- 6. 结果处理 ---
-        # 返回最终伤害数字，并五舍六入到整数（实战中通常显示整数伤害）
         return round_half_up(damage)
-        
+
     except Exception as e:
-        # 如果计算出错（如参数类型不对），在控制台打印错误并返回0
         print(f"伤害计算模块异常: {e}")
         return 0
